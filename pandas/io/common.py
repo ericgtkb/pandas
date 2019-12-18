@@ -15,6 +15,7 @@ from typing import (
     BinaryIO,
     Dict,
     List,
+    Mapping,
     Optional,
     TextIO,
     Tuple,
@@ -45,9 +46,6 @@ from pandas.core.dtypes.common import is_file_like
 from pandas._typing import FilePathOrBuffer
 
 lzma = _import_lzma()
-
-# gh-12665: Alias for now and remove later.
-CParserError = ParserError
 
 # common NA values
 # no longer excluding inf representations
@@ -108,7 +106,7 @@ def _is_url(url) -> bool:
 
 
 def _expand_user(
-    filepath_or_buffer: FilePathOrBuffer[AnyStr]
+    filepath_or_buffer: FilePathOrBuffer[AnyStr],
 ) -> FilePathOrBuffer[AnyStr]:
     """Return the argument with an initial component of ~ or ~user
        replaced by that user's home directory.
@@ -138,7 +136,7 @@ def _validate_header_arg(header) -> None:
 
 
 def _stringify_path(
-    filepath_or_buffer: FilePathOrBuffer[AnyStr]
+    filepath_or_buffer: FilePathOrBuffer[AnyStr],
 ) -> FilePathOrBuffer[AnyStr]:
     """Attempt to convert a path-like object to a string.
 
@@ -248,8 +246,8 @@ def get_filepath_or_buffer(
         return _expand_user(filepath_or_buffer), None, compression, False
 
     if not is_file_like(filepath_or_buffer):
-        msg = "Invalid file path or buffer object type: {_type}"
-        raise ValueError(msg.format(_type=type(filepath_or_buffer)))
+        msg = f"Invalid file path or buffer object type: {type(filepath_or_buffer)}"
+        raise ValueError(msg)
 
     return filepath_or_buffer, None, compression, False
 
@@ -276,16 +274,16 @@ _compression_to_extension = {"gzip": ".gz", "bz2": ".bz2", "zip": ".zip", "xz": 
 
 
 def _get_compression_method(
-    compression: Optional[Union[str, Dict[str, str]]]
+    compression: Optional[Union[str, Mapping[str, str]]]
 ) -> Tuple[Optional[str], Dict[str, str]]:
     """
     Simplifies a compression argument to a compression method string and
-    a dict containing additional arguments.
+    a mapping containing additional arguments.
 
     Parameters
     ----------
-    compression : str or dict
-        If string, specifies the compression method. If dict, value at key
+    compression : str or mapping
+        If string, specifies the compression method. If mapping, value at key
         'method' specifies compression method.
 
     Returns
@@ -295,15 +293,14 @@ def _get_compression_method(
 
     Raises
     ------
-    ValueError on dict missing 'method' key
+    ValueError on mapping missing 'method' key
     """
-    # Handle dict
-    if isinstance(compression, dict):
-        compression_args = compression.copy()
+    if isinstance(compression, Mapping):
+        compression_args = dict(compression)
         try:
             compression = compression_args.pop("method")
         except KeyError:
-            raise ValueError("If dict, compression must have key 'method'")
+            raise ValueError("If mapping, compression must have key 'method'")
     else:
         compression_args = {}
     return compression, compression_args
@@ -358,9 +355,9 @@ def _infer_compression(
     if compression in _compression_to_extension:
         return compression
 
-    msg = "Unrecognized compression type: {}".format(compression)
+    msg = f"Unrecognized compression type: {compression}"
     valid = ["infer", None] + sorted(_compression_to_extension)
-    msg += "\nValid compression types are {}".format(valid)
+    msg += f"\nValid compression types are {valid}"
     raise ValueError(msg)
 
 
@@ -368,7 +365,7 @@ def _get_handle(
     path_or_buf,
     mode: str,
     encoding=None,
-    compression: Optional[Union[str, Dict[str, Any]]] = None,
+    compression: Optional[Union[str, Mapping[str, Any]]] = None,
     memory_map: bool = False,
     is_text: bool = True,
 ):
@@ -418,7 +415,7 @@ def _get_handle(
     except ImportError:
         need_text_wrapping = BufferedIOBase  # type: ignore
 
-    handles = list()  # type: List[IO]
+    handles: List[IO] = list()
     f = path_or_buf
 
     # Convert pathlib.Path/py.path.local or string
@@ -457,13 +454,11 @@ def _get_handle(
                 if len(zip_names) == 1:
                     f = zf.open(zip_names.pop())
                 elif len(zip_names) == 0:
-                    raise ValueError(
-                        "Zero files found in ZIP file {}".format(path_or_buf)
-                    )
+                    raise ValueError(f"Zero files found in ZIP file {path_or_buf}")
                 else:
                     raise ValueError(
                         "Multiple files found in ZIP file."
-                        " Only one file per ZIP: {}".format(zip_names)
+                        f" Only one file per ZIP: {zip_names}"
                     )
 
         # XZ Compression
@@ -472,7 +467,7 @@ def _get_handle(
 
         # Unrecognized Compression
         else:
-            msg = "Unrecognized compression type: {}".format(compression)
+            msg = f"Unrecognized compression type: {compression}"
             raise ValueError(msg)
 
         handles.append(f)
@@ -528,7 +523,7 @@ class BytesZipFile(zipfile.ZipFile, BytesIO):  # type: ignore
         file: FilePathOrBuffer,
         mode: str,
         archive_name: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ):
         if mode in ["wb", "rb"]:
             mode = mode.replace("b", "")
@@ -569,11 +564,11 @@ class MMapWrapper(BaseIterator):
         return self
 
     def __next__(self) -> str:
-        newline = self.mmap.readline()
+        newbytes = self.mmap.readline()
 
         # readline returns bytes, not str, but Python's CSV reader
         # expects str, so convert the output to str before continuing
-        newline = newline.decode("utf-8")
+        newline = newbytes.decode("utf-8")
 
         # mmap doesn't raise if reading past the allocated
         # data but instead returns an empty string, so raise
